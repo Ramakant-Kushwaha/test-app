@@ -12,6 +12,7 @@ app.use(
 );
 
 app.get('/', (req, res) => {
+	console.log("hello 1");
 	res.send({ msg: 'hello' }).status(200);
 });
 
