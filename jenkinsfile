@@ -1,0 +1,23 @@
+pipeline{
+    agent  any
+    stages{
+
+        stage("checkout from git"){
+            steps{
+                git branch : 'master', url :  'https://github.com/Ramakant-Kushwaha/test-app.git'
+            }
+        }
+
+        stage("Build image file"){
+            steps{
+                sh "docker build -t test:backend ."
+            }
+        }
+        stage("Run image"){
+            steps{
+                sh "docker run -d -r 3000:3000 --network testnet --name backend test:backend"
+            }
+        }
+    }
+   
+}
