@@ -1,0 +1,347 @@
+You are acting as three experts simultaneously:
+A brutally strict IBM BobStorm hackathon judge.
+A principal software architect experienced in agentic AI, IBM Bob, watsonx Orchestrate, MCP, TypeScript, Angular, Node.js, Jest and secure SDLC automation.
+A hackathon execution lead who must deliver a real, reliable MVP within 36 hours.
+Your objective is not to encourage us or agree with our assumptions. Your objective is to determine whether the following idea can realistically win first prize, expose every weakness, and improve it into the strongest implementable submission.
+Do not give generic suggestions. Do not inflate scores. Do not describe unimplemented features as working. Clearly separate:
+Confirmed capabilities
+Reasonable implementation assumptions
+Features that must be validated
+Optional extensions
+Unsupported claims
+Demo risks
+Hackathon context
+Event: IBM BobStorm Hackathon
+Team: ThunderBob
+Team members:
+Maximum score: 20 points across four equally weighted judging categories.
+Official judging categories
+1. Completeness and Feasibility — 5 points
+Judges should see:
+A real and clearly defined business/customer problem.
+A complete workflow from input through agent actions to useful output.
+A working MVP with a clear distinction between implemented and planned capabilities.
+A realistic, technically feasible architecture.
+IBM Bob and/or watsonx Orchestrate as central components, not decorative additions.
+2. Creativity and Innovation — 5 points
+Judges should see:
+A genuinely differentiated approach, not merely “we used AI.”
+Meaningful coordination between agents, deterministic tools and business rules.
+One memorable capability that existing PR review or test-generation tools do not normally provide.
+A clear comparison between the existing manual workflow and the new workflow.
+3. Design and Usability — 5 points
+Judges should see:
+A focused, polished and easy-to-understand interface.
+Clear progress, findings, evidence, final status and next actions.
+Useful handling of errors and uncertain results.
+Human review and approval before consequential source-code changes.
+An experience understandable within a three-minute demonstration.
+4. Effectiveness and Efficiency — 5 points
+Judges should see:
+A real end-to-end demonstration, not slides, hard-coded output or mock screens.
+Executable proof that the solution works.
+Measured evidence such as analysis duration, tests generated, regressions reproduced, manual steps reduced or test coverage added.
+Honest limitations and transparent handling of unconfirmed findings.
+Metrics generated from actual prototype runs, not invented ROI claims.
+Submission requirements
+The final submission must include:
+Demo video
+Written problem and solution statement
+Written technology statement
+Screenshots showing IBM Bob usage
+Selected idea
+ChangeGuard AI
+ChangeGuard AI takes a requirement and proposed pull request, identifies code outside the pull request that may break, converts the highest-risk failure hypothesis into an executable regression test, runs that test against the actual application, and determines whether the change is safe to merge.
+If a valid test reproduces a regression, the release verdict becomes BLOCKED. IBM Bob proposes a minimal fix, but no source-code change is applied until a reviewer approves the exact stored diff. After approval, ChangeGuard applies only that reviewed patch, reruns the complete test suite and produces an evidence-backed Change Survival Report.
+Core positioning
+A green CI pipeline proves only the scenarios already covered by existing tests.
+ChangeGuard uses IBM Bob to investigate what a change could break outside those existing tests and converts the risk into executable proof before merge.
+Do not describe ChangeGuard as a generic:
+AI code reviewer
+AI test generator
+PR summarizer
+Static-analysis dashboard
+Multi-agent SDLC assistant
+Its differentiator is:
+Change-specific, cross-component failure discovery followed by deterministic executable proof.
+Primary demo scenario
+Jira-style requirement PRICE-142:
+“Support nullable promotional discount codes.”
+The feature branch modifies the product contract from:
+discountCode: string
+to:
+discountCode: string | null
+The changed files are in the product/pricing area. An untouched billing component receives product data through a serialized event boundary and maintains an older copy of the contract:
+discountCode: string
+The billing calculator executes:
+line.discountCode.toUpperCase()
+Because the data crosses a JSON/event boundary and is cast to the billing type after JSON parsing, TypeScript compilation succeeds. The 18 existing tests also pass because:
+Validator tests never send null.
+Controller tests mock the billing adapter.
+Billing tests use only non-null discount codes.
+Billing does not import the modified product type.
+ChangeGuard should:
+Read the requirement and Git diff.
+Detect the changed contract field.
+Trace the event path to the untouched billing consumer.
+Identify the null-dereference hypothesis.
+Generate a real Jest regression test asserting that billing safely handles a null discount code.
+Execute the test.
+Confirm that it reached application code and failed at InvoiceTaxCalculator.
+Mark the proof as valid.
+Set the deterministic verdict to BLOCKED.
+Generate the smallest safe patch.
+Validate the diff with git apply --check and store its SHA-256.
+Show the exact proposed diff to the reviewer.
+Require explicit human approval.
+Apply only the approved stored diff.
+Rerun the complete suite.
+Finish with 18 baseline tests plus one generated regression test passing.
+Produce the Change Survival Report with evidence.
+The primary demonstration should remain focused on this single contract regression.
+Zero-price handling, authorization checks, security scanning, additional failure categories, watsonx.governance and CI integration are optional extensions. They must not distract from or destabilize the MVP.
+Technology direction
+Use the following architecture only where each component has a clear role:
+IBM Bob: visible runtime developer entry point; understands the requirement/change, initiates ChangeGuard and explains findings.
+watsonx Orchestrate: coordinates the agent workflow.
+watsonx.ai: performs requirement interpretation, hypothesis prioritization, Jest test generation and minimal patch generation.
+FastMCP server: executes deterministic Git, dependency, test, proposal-validation and approved-patch operations.
+Node.js backend with SQLite: evidence store, approval control, deterministic verdict computation and UI API.
+Angular: one primary Mission Control screen with optional drill-down views.
+Jest: real regression execution.
+Git: real diff, patch validation and reset.
+Replay: clearly labelled replay of a previously verified run, used only as a fallback.
+Agent design
+Prefer one visible ChangeGuard workflow rather than advertising many agents.
+Internally, watsonx Orchestrate may coordinate:
+Scope and Impact Agent
+Risk Agent
+Test and Verification Agent
+Remediation Agent
+Supervisor
+However, do not add agents merely to appear agentic.
+Every consequential operation must be performed by deterministic tools. Models may reason, prioritize, explain and generate candidate code, but models must not fabricate Git results, dependency paths, test output, approval status or release verdicts.
+Mandatory controls
+The implementation must include:
+A deterministic proof_valid rule that rejects tests that fail because of syntax errors, missing imports, compilation errors or broken test setup.
+A deterministic verdict computed by the backend, not by an LLM.
+A stored patch proposal validated through git apply --check.
+A hash binding the human approval to the exact reviewed diff.
+A single-use approval control.
+No automatic application of an unreviewed patch.
+Evidence captured directly from tool execution.
+An honest replay mode that is visibly labelled as recorded evidence.
+No unsupported ROI or “prevented production outage” claim.
+Prefer that the authorization secret is passed directly from the backend to the deterministic patch tool. The LLM should not receive the raw approval secret.
+Deterministic verdict rules
+Use rules similar to:
+BLOCKED: At least one proof_valid regression test fails, or an unresolved confirmed Critical finding exists.
+NEEDS REVIEW: No executable regression has been confirmed, but the analysis found an untested downstream consumer or an unresolved High-risk hypothesis.
+PASSED: The approved patch has been applied, the complete suite passes and no confirmed Critical or High finding remains.
+Demo experience
+The live demo should primarily use one Mission Control screen showing:
+Requirement and branch
+Existing CI result
+Compact pipeline progress
+Blast-radius path
+Untouched billing consumer
+Generated test
+Raw Red failure
+proof_valid result
+BLOCKED/PASSED verdict
+Exact proposed patch
+Human approval
+Green revalidation
+Measured evidence
+Optional tabs may provide drill-down detail, but judges should not need to navigate multiple screens to understand the story.
+The three-minute flow should be:
+Ask Bob whether PRICE-142 is safe to merge.
+Show that the existing pipeline is 18/18 green.
+Show the event dependency leading to the untouched billing consumer.
+Execute the generated test live.
+Show the valid TypeError proof and BLOCKED verdict.
+Review and approve the exact minimal diff.
+Rerun the suite.
+Show 19/19 green and PASSED.
+Show measured evidence and the Change Survival Report.
+Your review tasks
+Produce a complete, brutally honest assessment covering the following.
+1. Executive verdict
+Provide:
+First-place readiness score out of 100.
+Estimated score for each official category out of 5.
+Overall estimated score out of 20.
+GO, CONDITIONAL GO or NO-GO.
+The three strongest reasons this could win.
+The three most likely reasons it could lose.
+Whether the submission is truly differentiated from AI code review, AI test generation, static analysis and current coding assistants.
+Do not give 5/5 unless the solution demonstrably earns it.
+2. Problem statement
+Write a judge-ready problem statement covering:
+Target user
+Current workflow
+Pain and risk
+Why current CI and code review miss the problem
+Business consequence
+Exact scope of the MVP
+Keep the language direct and defendable. Do not invent statistics.
+3. Solution statement
+Write a judge-ready solution statement covering:
+What ChangeGuard does
+IBM Bob’s runtime role
+watsonx Orchestrate’s role
+Deterministic MCP tools
+Executable proof
+Human approval
+Final evidence-backed outcome
+Clearly explain what is innovative.
+4. Technology statement
+Write a submission-ready technology statement that explains the purpose of:
+IBM Bob
+watsonx Orchestrate
+watsonx.ai
+FastMCP
+Node.js
+SQLite
+Angular
+Jest
+Git
+Identify any technology that is unnecessary or carries more risk than value.
+5. Rubric assessment
+Create a table with:
+Judging category
+Current likely score
+Evidence required for 5/5
+Current risks
+Exact improvements needed
+Be strict.
+6. MVP definition
+Define:
+Mandatory MVP capabilities
+Optional extensions
+Features to remove or defer
+The smallest end-to-end workflow that still has first-place potential
+Technical go/no-go gates for hours 6, 12, 18, 24 and 30
+The go/no-go gates must be objective.
+7. Architecture review
+Review the proposed architecture for:
+Necessity
+Feasibility within 36 hours
+Reliability
+Security
+Agent/tool boundaries
+Evidence integrity
+Approval enforcement
+Offline/replay resilience
+Demo failure points
+Recommend a simplified final architecture.
+8. Agent and tool design
+Specify:
+Agent responsibilities
+Tool responsibilities
+Inputs and structured outputs
+Which decisions must remain deterministic
+Where IBM Bob must be visible at runtime
+Where human approval is mandatory
+Which agent/tool boundaries are unnecessary
+Do not propose extra agents unless there is a concrete need.
+9. Demo script
+Create a tightly timed three-minute demo script with:
+Screen/action
+Spoken narration
+Evidence shown
+Judging category addressed
+Backup action if the live step fails
+The demo must lead with the contradiction:
+“Existing CI is green, but this change still breaks billing.”
+10. Metrics plan
+Define only measurable prototype metrics:
+Baseline test count
+Generated test count
+Valid regressions reproduced
+Analysis duration
+Revalidation duration
+Manual comparison method
+Evidence links
+Approval record
+Final verdict
+Identify any metric or claim that must be removed unless measured.
+11. Failure and risk register
+List at least 12 realistic risks, including:
+Bob unavailable
+watsonx Orchestrate timeout
+MCP connectivity failure
+Generated test does not compile
+Generated test fails for the wrong reason
+Dependency analyzer misses the consumer
+Patch does not apply
+Patch fixes one test but breaks existing behavior
+Approval replay
+UI receives malformed output
+Demo takes longer than three minutes
+Judges view the scenario as planted or hard-coded
+For every risk provide:
+Probability
+Impact
+Early warning
+Mitigation
+Demo fallback
+12. Judge attack questions
+Act like a skeptical judging panel and ask at least 20 difficult questions.
+Include questions such as:
+How is this different from Copilot, Qodo, SonarQube, Snyk or ordinary test generation?
+Was the failure hard-coded for the demo?
+What happens when Bob generates an invalid test?
+Why are multiple agents necessary?
+Why should a model be trusted to modify code?
+Can this scale beyond TypeScript?
+What exactly is autonomous?
+What prevents an agent from applying a different patch than the reviewer approved?
+What part would work without watsonx Orchestrate?
+What part would work without IBM Bob?
+Then provide concise, defensible answers based only on the proposed implementation.
+13. Submission content
+Generate final drafts for:
+Problem statement
+Solution statement
+Technology statement
+Creativity/innovation statement
+Business impact statement
+Limitations statement
+30-second opening pitch
+15-second closing line
+Demo-video description
+Screenshot checklist proving IBM Bob usage
+14. Implementation plan
+Provide a 36-hour implementation plan with:
+Workstreams
+Owners for a five-person team
+Dependencies
+Verification checkpoints
+Feature-freeze time
+Rehearsal time
+Backup-video time
+Submission packaging
+Do not schedule optional extensions before the Red → Approval → Green core flow works reliably.
+15. Final brutal recommendation
+Finish with:
+What to keep
+What to remove
+What to simplify
+What must work live
+What should be shown only as future scope
+Whether to proceed with ChangeGuard or pivot
+The single most important action the team should take next
+Required response style
+Be direct and unsentimental.
+Do not flatter the team.
+Do not call the idea innovative without explaining why.
+Do not assume that using more IBM products earns more points.
+Penalize unnecessary architecture and integration risk.
+Treat mock screens, hard-coded results and unsupported metrics as major failures.
+Prefer one complete, repeatable workflow over many partial features.
+Use tables where comparison is useful.
+Clearly label facts, assumptions, recommendations and unresolved validation items.
+Do not silently change the selected idea.
+Keep ChangeGuard focused on the single nullable-contract billing regression unless you provide a compelling reason to change it.
+If the design is unlikely to win, say so explicitly and recommend a practical pivot.
