@@ -1,0 +1,65 @@
+GOAL: make ChangeGuard seamless inside IBM Bob. No manual input; runs start by themselves; Bob tells the developer
+what breaks, in plain English, with a link to the detailed report. Windows + Git Bash. Never print secret values.
+Read .bob/rules/changeguard.md, plans/CONTRACTS.md, plans/plan-05-backend.md, plans/plan-07-bob-reviewer.md and
+docs/evidence/verify/verification-report.md first. Keep all existing tests passing; add tests for everything new.
+Runs stay in ORCHESTRATOR_MODE=direct. Do not touch approval, executor or verdict logic.
+
+1. CONTRACTS.md: add note "v1.3 (2026-11-21): auto-start inputs, run summary, latest-run tool (3 reviewer tools)".
+   Document the new fields and endpoints below.
+
+2. Backend (services/backend):
+   a. POST /api/runs: jira_id, requirement_text, base_ref, head_ref become optional. When missing, derive them:
+      jira_id = first [A-Z]+-[0-9]+ in the fixture's current branch name or last commit subject
+      (fixture/target-enterprise-app); requirement_text = tickets/<jira_id>.md at the workspace root if it exists,
+      else the last commit body, else the commit subject; base_ref/head_ref default to demo-base/demo-pr (seeded
+      demo range; say so in the run record as "range: seeded demo"). Store how each value was obtained.
+   b. GET /api/runs/:id/summary → one plain-English object used by Bob, the UI and the report:
+      { run_id, jira_id, status, verdict, mode, headline, severity, where: {file, line, code_line},
+        why, untouched_consumer (true if the broken file is not in the diff), proof: {test_name, status, failure_line},
+        fix: {files, changed_lines, sha256_short}, verdict_reasons_plain[], next_action, mission_control_url,
+        markdown }  — markdown = the same content as a ready-to-paste merge-request comment.
+      Example headline: "PRICE-142 breaks Billing, a service your change didn't touch."
+   c. GET /api/runs/latest?branch=<name> → newest run (optionally for a branch) plus its summary and
+      new_since_last_check (true until it has been fetched once by the reviewer with mark_seen=true).
+   d. Create tickets/PRICE-142.md with: "Promotional items may have no discount code. Billing must tag a line with
+      no discount code as NONE."
+
+3. Reviewer MCP (services/changeguard-tools/serve_reviewer.py) — exactly 3 tools:
+   - start_changeguard_run(jira_id?, requirement_text?) → {run_id, mission_control_url} (source "bob"; omit fields to auto-derive)
+   - get_run_status(run_id) → the status plus the summary object from 2b
+   - get_latest_run(branch?) → calls 2c with mark_seen=true; returns the summary and new_since_last_check
+   Keep backend error codes surfaced as before.
+
+4. .bob/reviewer-instructions.md — rewrite for the ChangeGuard Reviewer mode:
+   - At the start of EVERY reply, call get_latest_run for the current branch. If new_since_last_check is true,
+     report that result first.
+   - Auto-start: when the developer says the change is finished ("done", "ready", "commit", "pushed", "can I merge",
+     "review my change") or you finish code changes on a feature/* branch, call start_changeguard_run without asking,
+     say one line "ChangeGuard is checking <ticket>…", poll get_run_status every 10 s until done.
+   - Report with this template (fill from the summary, never invent):
+       ⚠/✅ <headline>
+       Where: <file>:<line> — <why>   (flag "not in your diff" when untouched_consumer is true)
+       Proof (tested): <test_name> <status> at <failure_line>
+       Fix ready: <changed_lines> lines in <files> — review and approve: <mission_control_url>
+       Bob's review (opinion, not tested): list the requirement's acceptance criteria and mark each
+       "covered by the diff/tests" or "missing", plus anything else you notice in the diff.
+   - Always label "Proof (tested)" vs "Bob's review (opinion)". Never approve or apply; a person does that in Mission Control.
+   - After approval, when asked or on the next reply, report the final verdict exactly as returned.
+
+5. Auto-trigger on commit:
+   - scripts/hooks/post-commit (bash): on feature/* branches only, POST /api/runs with {"source":"git-hook"} (inputs
+     auto-derived), print "ChangeGuard is checking <ticket>: <url>", open the URL in the default browser
+     (cmd.exe /c start on Windows), show a Windows toast if possible (powershell, no extra installs; skip silently if
+     it fails). Never block or fail the commit; if the backend is down, print one line and exit 0.
+   - scripts/install-hook.sh: copies it into fixture/target-enterprise-app/.git/hooks/post-commit and fixture/demo-work is untouched.
+
+6. scripts/start-demo.sh and scripts/stop-demo.sh (Git Bash): start backend (tsx --env-file=.env), executor,
+   agent MCP, reviewer MCP (each after set -a; source services/changeguard-tools/.env; set +a, using venv python)
+   and Mission Control; logs in logs/; wait up to 30 s per port (3000, 8002, 8000, 8001, 4200) and name the first
+   that fails. stop-demo.sh stops exactly those processes (PID files in logs/).
+
+7. Verify and save output to docs/evidence/bob-integration/: all suites pass; start-demo.sh brings all 5 ports up;
+   a commit on a feature branch in the fixture triggers a run via the hook; get_latest_run returns it with
+   new_since_last_check true, then false; the summary headline, where, proof and fix are correct for PRICE-142;
+   the run completes after approval with "PASSED — within tested scope". Reset with python -m changeguard_tools.reset.
+   Update plans/plan-07-bob-reviewer.md and README (how to install the hook, how to use Reviewer mode).
