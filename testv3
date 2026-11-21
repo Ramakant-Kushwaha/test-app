@@ -1,0 +1,43 @@
+GOAL: redesign Mission Control (services/mission-control, Angular) so a judge understands a run in 10 seconds.
+Read plans/plan-06-mission-control.md, plans/CONTRACTS.md (v1.3) and services/backend (GET /api/runs/:id/summary,
+GET /api/runs/latest, the stream and report endpoints) first. Windows + Git Bash.
+Use GET /api/runs/:id/summary as the main data source and keep live updates from /api/runs/:id/stream.
+Do not change any backend behaviour or API; if the UI needs a field that the summary lacks, stop and tell me which.
+Keep all existing tests passing and add component tests. No external CDNs or web fonts; no new UI libraries.
+
+RUN PAGE, top to bottom:
+1. Headline banner: summary.headline in large text; verdict badge (red "BLOCKED", amber "NEEDS REVIEW",
+   green "PASSED — within tested scope", grey "Running…"); a small always-visible mode label ("Direct pipeline");
+   ticket id and how the run started (Bob / git hook / manual).
+2. Timeline stepper: Change → Impact → Proof → Fix → Approve → Verified. Each step shows its state
+   (done / active / waiting / failed) and a one-line result, e.g. "3 files changed", "Billing reached via billing.line",
+   "Test fails at InvoiceTaxCalculator.ts:8", "2 lines in 2 files", "Approved by <name>", "18 + 1 tests pass".
+3. Impact map (inline SVG, no library): changed files (blue) → event "billing.line" → consumer files.
+   The broken consumer is red and labelled "not in your diff". Built from the blast-radius path; readable at 1280×720.
+4. Proof panel: test name, status, the failing line with ±3 lines of source and the hazard line highlighted,
+   one sentence "why" from the summary, and a collapsible raw test output.
+5. Fix panel: unified diff with +/− colouring, file headers and the changed-line count.
+6. Approve card: approver name field, the hash (short, click to show the full value), a 10-minute expiry countdown,
+   Approve and Reject buttons. Disabled with a clear reason when used, expired, or the run isn't awaiting approval.
+   Use exactly the same API calls as now.
+7. Verified card (after apply): proof test now passes, full-suite counts before/after, rescan clean,
+   verdict reasons in plain English.
+8. Actions: "Copy as merge-request comment" (copies summary.markdown, shows "Copied"), "Download report" (existing
+   report endpoint).
+
+ALSO
+- Left sidebar: latest 10 runs (ticket, verdict badge, relative time); the current run highlighted; a new run
+  appears automatically.
+- Home page (no run selected): open the latest run automatically; if none, show "No runs yet. Commit on a feature
+  branch or tell Bob 'PRICE-142 is done'."
+- Remove the manual start form from the main view; keep it under an "Advanced: start a run manually" toggle.
+- Loading, empty and error states (backend down → "Backend not reachable on :3000").
+- Design: calm neutral background; red only for breaking, green only for verified, amber for needs review;
+  WCAG AA contrast; keyboard reachable; no layout jumps while updating; fits 1280×720 without horizontal scroll.
+
+VERIFY
+- npm run build and the test suite pass; tsc --noEmit passes.
+- With scripts/start-demo.sh running, do one real run (start via POST /api/runs with {"source":"manual"}),
+  approve in the UI, reach "PASSED — within tested scope", then reset with python -m changeguard_tools.reset.
+- Save screenshots at 1280×720 to docs/evidence/06-redesign/: awaiting approval, approve card, verified, sidebar.
+- List anything you could not verify.
