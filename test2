@@ -1,0 +1,24 @@
+GOAL: redesign Mission Control (services/mission-control, Angular) so a judge understands a run in 10 seconds.
+Read plans/plan-06-mission-control.md, plans/CONTRACTS.md (v1.3) and the backend summary endpoint first.
+Use GET /api/runs/:id/summary as the main data source and keep live updates from /api/runs/:id/stream.
+Keep all existing tests passing; add component tests. No new backend behaviour, no external CDNs or web fonts.
+
+Run page, top to bottom:
+1. Headline banner: summary.headline in large text; verdict badge (red BLOCKED, amber NEEDS REVIEW,
+   green "PASSED — within tested scope"); a small, always-visible mode label ("Direct pipeline").
+2. Timeline stepper: Change → Impact → Proof → Fix → Approve → Verified, each with state (done / active / waiting /
+   failed) and a one-line result.
+3. Impact map (inline SVG, no library): changed files (blue) → event "billing.line" → consumer files; the broken
+   consumer red with "not in your diff". Built from the blast-radius path.
+4. Proof panel: test name, status, the failing line with ±3 lines of source and line 8 highlighted, collapsible raw output.
+5. Fix panel: unified diff with +/− colouring and file headers; changed-line count.
+6. Approve card: approver name, the hash (short, expandable to the full value), 10-minute expiry countdown,
+   Approve / Reject buttons; disabled with a clear reason once used, expired or the run isn't awaiting approval.
+   Same API calls as now.
+7. Verified card (after apply): proof test now passes, full suite counts, rescan clean, verdict reasons in plain English.
+8. "Copy as merge-request comment" button (copies summary.markdown) and "Download report" (existing report endpoint).
+Also: a left sidebar with the latest 10 runs (ticket, verdict, time); loading, empty and error states; works at
+1280×720 for screen recording; red only for breaking, green only for verified; WCAG AA contrast; keyboard reachable.
+Remove the manual start form from the main view (keep it under an "Advanced: start a run manually" toggle).
+Verify: build and tests pass; screenshot the page at each stage of one real run (awaiting approval, verified) into
+docs/evidence/06-redesign/.
