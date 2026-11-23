@@ -1,0 +1,85 @@
+GOAL: a fully agentic ChangeGuard, triggered ONLY by `git commit`.
+Picture: a "doctor" agent (changeguard_supervisor, in watsonx Orchestrate) decides every step; a "nurse"
+(the local AGENT RUNTIME in services/backend) phones the doctor, tells her which tools exist, runs only the
+tools she asks for (if allowed) and reports results back. All calls go OUTBOUND from the laptop to Orchestrate.
+No tunnel, no inbound access, no prepared tests or fixes, no project-specific hints in agent instructions.
+Windows + Git Bash. Never print or log secrets. Do not change approval binding, executor checks or verdict
+computation. All existing tests must keep passing.
+Read .bob/rules/changeguard.md, plans/CONTRACTS.md, agents/, scripts/hooks/, scripts/install-hook.sh,
+services/backend (wxo.ts, runs.ts, direct.ts, summary) and services/changeguard-tools first.
+Plan all phases now; implement ONE phase at a time and stop for my review after each.
+
+PHASE 1 — Trigger: git commit only
+- scripts/hooks/post-commit: on any branch except main, send {source:"git-hook", repo_path, branch, head_sha} to
+  POST http://127.0.0.1:3000/api/runs and return immediately (background; never slow down, block or fail the commit;
+  if the backend is down, print one line and exit 0). Keep the Windows notification and browser-open.
+- scripts/install-hook.sh <repo path> / scripts/uninstall-hook.sh: install via core.hooksPath for that repo,
+  keeping any existing hooks working. Install it for fixture/target-enterprise-app.
+- Backend inputs, live: base = merge-base(main, head_sha), head = head_sha; ticket = first [A-Z]+-[0-9]+ in the branch
+  name or commit subject; requirement = tickets/<ID>.md if present, else the commit body, else status needs_input.
+  demo-work is synced to head_sha through the existing safe reset path (marker/origin checks unchanged).
+- One run per commit SHA (same SHA → return the existing run). A newer commit on the same branch marks older running
+  runs of that branch "superseded".
+- Remove other automatic starts: Bob's Reviewer mode no longer starts runs by itself (it only reports, see Phase 4);
+  the manual start form stays hidden under "Advanced" for testing only.
+
+PHASE 2 — The agent runtime ("nurse"), services/backend/src/agentic/
+- Protocol (document in CONTRACTS.md as v2.0 "agentic runtime"):
+  run_start → {"type":"run_start", run_id, change:{ticket, requirement, branch, base, head}, tools:[{name, description,
+  args_schema}], agents:[{name, purpose, input_schema}], limits:{max_steps, steps_used}}
+  supervisor reply (JSON only, exactly one action):
+   {"thought":"<≤2 sentences>","action":"call_tool","tool":"<name>","args":{...}}
+   {"thought":"...","action":"consult_agent","agent":"<name>","input":{...}}
+   {"thought":"...","action":"finish","report":{"summary","risks":[...],"recommendation"}}
+  observation → {"type":"observation", step, ok, result (trimmed to 12 KB, say if trimmed), error?,
+  state:{proof_status?, proposal_id?, findings_count, steps_used}}
+  post_approval → {"type":"post_approval", reverify, verdict}; the supervisor only writes the final narrative.
+- Tool registry (registry.ts, the single source of truth sent in run_start): get_git_diff, analyze_blast_radius,
+  run_security_rules, write_and_run_tests, submit_patch_proposal (existing tools, called locally), plus NEW read-only
+  read_file(path, start_line, end_line; ≤200 lines) and search_code(pattern; ≤50 results), limited to WORK_ROOT src/
+  and tests/, rejecting path escapes. Each tool has a JSON schema. There is NO apply tool.
+- Loop: send → strict JSON parse (strip code fences; invalid → one error message and one retry) → validate against the
+  registry and schema (unknown tool, bad args, path escape → error observation) → execute → observe → repeat until
+  finish or a limit. Conversation memory: use the Orchestrate thread id if wxo.ts supports it, else resend a compact
+  history of previous actions and results.
+- Limits: MAX_AGENT_STEPS=25, 2 retries per tool, 90 s per agent call, 10 min per run → NEEDS_REVIEW with the reason.
+- Every thought, action and observation is stored as an evidence event (no secrets, trimmed).
+- ORCHESTRATOR_MODE=agentic is the default; direct stays for unit tests only and is labelled "test mode".
+- After the supervisor finishes with a stored proposal → run waits for human approval in Mission Control (unchanged);
+  after apply + re-verify, send post_approval and store the supervisor's final narrative. Verdict = backend rules.
+
+PHASE 3 — The agents ("doctor" + specialists), agents/*.yaml, no tools, JSON only, generic instructions
+- changeguard_supervisor: "You cannot run anything. The first message lists the tools and agents you may use; use
+  only those names, one action per reply, and wait for each result. Never claim a result you have not received."
+  Typical good plan: diff → blast radius → rules → impact_analyst → test_writer → write_and_run_tests (new test if
+  INCONCLUSIVE) → fix_writer → submit_patch_proposal (retry if check fails) → reviewer → finish. Explain skips in thought.
+- changeguard_impact_analyst (risky consumers, why, path to test), changeguard_test_writer (one Jest TS test through
+  the producer entry point found in the evidence; retry input has proof_status/invalid_reason/messages),
+  changeguard_fix_writer (minimal unified diff, src/ only, ≤40 lines, no test edits; retry input has the git error),
+  changeguard_reviewer (acceptance criteria covered/missing, labelled "opinion").
+  Exact input/output JSON in each file. consult_agent calls the named agent through wxo.ts.
+- Validate with the wxo-builder skill and watsonx-orchestrate-adk-docs; deploy with the orchestrate CLI; put the ids in
+  services/backend/.env as WXO_AGENT_ID_SUPERVISOR, _IMPACT, _TEST, _FIX, _REVIEW (never print other values).
+- Smoke test: send the supervisor a run_start with two tools via `orchestrate chat ask`; it must reply with one valid
+  call_tool action naming a listed tool.
+
+PHASE 4 — Where the developer sees it
+- Mission Control: an "Agent timeline" (step, agent, thought, action, short result, duration) on the run page; which
+  agent wrote the test and the fix; steps and retries; the commit (branch, short SHA, message) that triggered it.
+- Windows notification when the run reaches awaiting_approval or finishes: headline + link.
+- Bob Reviewer mode (update .bob/reviewer-instructions.md): does NOT start runs; at the start of every reply calls
+  get_latest_run for the current branch and, if there is a new result, reports it first with the agreed template
+  (headline, where + "not in your diff", Proof (tested), Fix ready + link, Bob's review (opinion)).
+
+PHASE 5 — Tests and live verification (save to docs/evidence/agentic-commit/)
+- Unit tests (chat API mocked): happy path; invalid JSON then valid; unknown tool; bad args; read_file path escape;
+  INCONCLUSIVE then a new test; rejected diff then fixed; step limit → NEEDS_REVIEW; timeout; agent asks to apply →
+  refused; same SHA → same run; newer SHA → older run superseded; hook never fails the commit when the backend is down.
+- Live: with scripts/start-demo.sh running, in fixture/target-enterprise-app make a small commit on
+  feature/promo-null-discount (e.g. a comment) → the run starts by itself, the agents work, Mission Control shows the
+  timeline, approve, verdict "PASSED — within tested scope". Repeat 3 times (reset between runs).
+  Then create branch feature/price-150 with a NEW change the agents have never seen (make Product.cost nullable and add
+  tickets/PRICE-150.md) and commit → report honestly what the agents did.
+  Per run: steps, agents consulted, retries, first test VALID?, first diff applied?, durations, verdict.
+- Update README (install the hook, how it works) and plans/SUBMISSION.md ("triggered by git commit; fully agentic on
+  watsonx Orchestrate; outbound only; a human approves every fix; the verdict is computed by rules, not by the AI").
