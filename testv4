@@ -1,0 +1,88 @@
+NEW FEATURE: ChangeGuard Code Health — check overall code quality, not only change impact:
+SQL tuning, code-level performance, Java memory/GC practices, and coding guidelines.
+Windows + Git Bash. Never print secret values. Do NOT change approval, executor, verdict or the existing
+change-impact flow; all existing tests must keep passing. Read .bob/rules/changeguard.md, plans/CONTRACTS.md (v1.3),
+services/changeguard-tools, services/backend and services/mission-control first.
+Plan all phases now (files, functions, rules, tests, how each acceptance check is met), then implement ONE phase at a
+time and stop after each phase for my review.
+
+CORE RULES
+- Deterministic checkers detect and measure; the LLM never decides whether something is an issue.
+- Every finding has: id, category (sql | performance | memory | standards), rule_id, severity
+  (critical | high | medium | low), file, line, snippet, message, recommendation, and evidence_label:
+  "proven" (measured), "detected" (rule fired) or "opinion" (AI review). Only "proven" or critical "detected"
+  findings can make a scan BLOCKED; "opinion" never blocks.
+- Two scan modes: "change" (only files changed between base_ref and head_ref) and "full" (whole target).
+- Baseline: a full scan can be saved as baseline; change scans report "new" vs "existing" per finding
+  (match by rule_id + file + normalised snippet hash, not line number).
+- Suppressions file .changeguard/suppressions.yaml (rule_id, file glob, reason, owner, expires); expired ones are ignored
+  and reported.
+- Rule packs are YAML in services/changeguard-tools/rules/health/ so the organisation can edit them without code changes.
+
+PHASE 1 — Sample code + static checker engine (tools package)
+1. Create samples/code-health/ (committed, outside fixture/): a small Java 17 service (5–8 classes) and SQL files with
+   deliberate, realistic issues covering every rule below, plus a clean file with no issues. Add a README listing
+   each planted issue with file:line (this is the answer key for tests).
+2. services/changeguard-tools/changeguard_tools/health/: a rule engine (Python, no network) that scans .java, .sql,
+   MyBatis XML and SQL strings in Java (@Query, JDBC execute/prepareStatement literals), using regex plus light
+   parsing (comments and string literals handled; no matches inside comments).
+3. Rule packs (YAML) with at least:
+   SQL: SELECT *; UPDATE/DELETE without WHERE (critical); leading-wildcard LIKE; function on a column in WHERE;
+        NOT IN subquery; OR chain on one column (suggest IN); ORDER BY without LIMIT on list queries;
+        query built by string concatenation (also security).
+   Performance: DB/HTTP call inside a loop (N+1); string concatenation with + in a loop; Pattern.compile or
+        new ObjectMapper inside a loop/method body called per request; nested loops over collections with contains();
+        HTTP/DB client without timeout; logging string concatenation without guard.
+   Memory/GC: System.gc(); finalize(); streams/connections/statements not in try-with-resources; static mutable
+        collections (static List/Map with add/put); ThreadLocal without remove(); unbounded caches (static HashMap used
+        as cache); boxing in hot loops (Integer/Long accumulation).
+   Standards: empty catch; catch (Exception|Throwable) that swallows; printStackTrace; System.out in non-test code;
+        hard-coded credentials/URLs; method longer than 60 lines; more than 5 parameters; magic numbers in conditions.
+4. Optional external tools: if `java` and PMD are installed, also run PMD and merge its findings (label "detected");
+   if not, skip and say so in the result. sqlfluff (pip, pure Python) for SQL style if installed; skip if not.
+5. Tests: every planted issue in samples/code-health is found (by rule_id and line), the clean file has zero findings,
+   comments don't trigger rules, suppressions and expiry work, baseline new/existing matching works.
+   Report precision/recall against the README answer key.
+
+PHASE 2 — SQL proof with SQLite (stdlib, no install)
+1. For each SQL query in samples/code-health that targets the sample schema, load the schema into an in-memory
+   SQLite database seeded with realistic volume (e.g. 50 000 orders, 5 000 customers) and run EXPLAIN QUERY PLAN.
+2. If the plan shows a full table SCAN on a filtered/joined table, attach the plan as evidence and set the finding
+   to "proven" ("full scan of orders (50 000 rows) for WHERE customer_id = ?").
+3. Propose the fix (index or query rewrite), apply it to a COPY of the in-memory database, re-run EXPLAIN, and attach
+   the before/after plans and timings (median of 5 runs). Never touch a real database.
+4. Clearly state in every SQL proof: "SQLite test database, seeded data; production engine plans may differ."
+5. Tests for proven/not-proven cases and the disclaimer.
+
+PHASE 3 — Agent MCP tool, backend, verdict
+1. New agent MCP tool run_code_health(run_id?, mode, target_path, base_ref?, head_ref?) → scan_id + summary;
+   posts findings as evidence events (category, label, new/existing).
+2. Backend: POST /api/health-scans (mode, target; auto-derive target = samples/code-health for the demo),
+   GET /api/health-scans/:id, GET /api/health-scans?limit=10, GET /api/health-scans/:id/summary (plain-English
+   headline, counts per category and label, top 5 issues, markdown for an MR comment).
+   Health verdict: BLOCKED (new proven or new critical detected), NEEDS_REVIEW (new high), PASSED (none new above
+   medium) — separate from the change-impact verdict.
+3. Optional: when a change-impact run starts, also run a change-mode health scan on the same diff and link it.
+4. Reviewer MCP: add a 4th tool run_code_health_scan(mode?) → summary + link. Update .bob/reviewer-instructions.md:
+   when the developer asks "check my code", "code review", "performance", "SQL" or "health", run it and report
+   using: headline; per category counts with labels; top issues as "file:line — message (proven/detected)";
+   then "Bob's review (opinion)" with anything else Bob notices; and the Mission Control link.
+5. CONTRACTS.md: add a v1.4 note documenting the tool, endpoints, finding fields, labels and health verdict.
+   Backend and tools tests for all of it.
+
+PHASE 4 — Mission Control "Code Health" view
+1. A Code Health page: headline + health verdict badge; tabs SQL / Performance / Memory & GC / Standards with counts;
+   each finding shows label chip (Proven green-outlined, Detected grey, Opinion dashed), new/existing, file:line,
+   code snippet with the line highlighted, recommendation, and for SQL proofs the before/after plan and timing.
+2. Filters: new only, severity, label. "Copy as MR comment". A small scorecard (issues per category, new vs existing).
+3. Link between a change-impact run and its health scan. Component tests; screenshots at 1280×720 into
+   docs/evidence/code-health/.
+
+PHASE 5 — Verify end to end and document
+1. With scripts/start-demo.sh: full scan of samples/code-health → save as baseline; introduce one new issue in a
+   copy (e.g. a new N+1 loop) and run a change scan → only the new issue is "new"; SQL proof shows before/after plans.
+2. From Bob Reviewer mode, "check my code" → Bob runs the scan and reports with labels and the link.
+3. Update README (how to run, how to edit rule packs, how to suppress) and plans/SUBMISSION.md
+   (a "Code Health (preview)" section: what's proven vs detected, SQLite disclaimer, what's next: PMD/SpotBugs/Sonar,
+   JFR/GC log analysis, benchmarks, real DB EXPLAIN on a test environment).
+Save all outputs to docs/evidence/code-health/ and list anything you could not verify.
