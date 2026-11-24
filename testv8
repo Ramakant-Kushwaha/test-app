@@ -1,0 +1,33 @@
+BUG: an agentic run looped — changeguard_supervisor sent the same call_tool write_and_run_tests with identical args
+~70 times (args contained only test_code; test_name and target_file were missing). analyze_blast_radius and
+run_security_rules were called with args {}. MAX_AGENT_STEPS=25 and the 2-retries-per-tool limit were NOT enforced.
+Windows + Git Bash. Never print secrets. Don't change approval, executor or verdict logic.
+
+STEP 1 — DIAGNOSE (no code changes yet). From the stored events of the latest run, show for steps 1–6 and 60–70:
+the exact action sent by the supervisor, the exact observation the runtime sent back (ok, error, result summary), and
+the exact message payload sent to Orchestrate for that turn (trimmed; no secrets). Answer:
+a) Did write_and_run_tests actually run, or was it rejected for missing args? What error text did the agent receive?
+b) Did the supervisor receive previous actions/observations each turn (thread id or history)? Show proof.
+c) Why weren't max_steps and the per-tool retry limit applied? Point to the exact code.
+d) How did analyze_blast_radius/run_security_rules behave with {} args?
+Write docs/evidence/agentic/loop-diagnosis.md, then STOP and show me.
+
+STEP 2 — FIX (after my OK):
+1. Hard limits in the loop: stop at MAX_AGENT_STEPS (count every turn, including errors); max 2 failures per tool;
+   detect repeats — the same tool with the same args hash twice in a row → send an observation "repeated action;
+   previous result: <summary>; choose a different action"; a third time → end the run NEEDS_REVIEW
+   (reason AGENT_LOOP). Unit tests for each limit.
+2. Clear errors: an invalid-args observation lists the missing/invalid fields and the tool's full args_schema with an
+   example. Unit test.
+3. Memory: every turn must include the previous actions and observations (Orchestrate thread id, or a compact history of
+   the last 10 steps plus the state summary). Unit test that turn N contains step N-1's observation.
+4. Auto-fill known args from run state so the agent can't get them wrong: run_id, base_ref/head_ref, and for
+   analyze_blast_radius changed_files/changed_fields from the diff result. For write_and_run_tests, default test_name
+   (kebab-case from the ticket) and target_file (file of the top finding) when missing. Record in the observation which
+   args were auto-filled.
+5. Supervisor instructions (agents/changeguard_supervisor.yaml): never repeat an action with identical args; after an
+   error, correct the args exactly as the error says or choose another action; to get a proof test, consult_agent
+   test_writer, then call write_and_run_tests with its test; after 2 INCONCLUSIVE proofs, finish with the reason.
+   Redeploy the agent.
+6. Re-run live: 1 commit-triggered PRICE-142 run. Show the timeline (it should take roughly 8–15 steps), the proof result,
+   and the verdict after approval. Save to docs/evidence/agentic/.
