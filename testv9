@@ -1,0 +1,32 @@
+Yes — do both, and add validation so invented code is caught before it runs.
+
+1. GROUNDED INPUT for every consult_agent (filled by the runtime from run state, like tool args; the supervisor
+   doesn't have to pass it):
+   - impact_analyst: the diff hunks, changed fields, blast-radius paths, and the exact list of files in the repo under
+     src/ (paths only).
+   - test_writer: for every file on the chosen path, its source with line numbers (≤ 300 lines per file, trimmed with a
+     note), its exported names, the correct relative import path FROM tests/generated/ to each file, one existing test
+     file as a style example, the test framework facts from package.json/jest config (Jest + ts-jest, TypeScript), and
+     the hazard file:line.
+   - fix_writer: the VALID proof (test name, failure message, top frame), the full source with line numbers of the
+     files on the failing path, and a short example of the required git unified diff format (diff --git, ---/+++, @@).
+   - reviewer: requirement, final diff, proof and re-verify results.
+2. MORE CONTEXT ON REQUEST: any specialist may reply {"need_files":[{"path","start_line","end_line"}]}; the runtime
+   answers with read_file results (same limits as the read_file tool) and asks the same specialist again. Max 2 rounds.
+3. VALIDATE BEFORE USING (reject with a precise error back to the same specialist, one retry):
+   - test_writer: language must be TypeScript; every import path must resolve to an existing file under the repo and
+     every imported name must be exported by it — list the real exports in the error.
+   - fix_writer: must be a git unified diff (reject "*** Begin Patch" and other formats); every file must exist under
+     src/; then the existing git apply --check.
+   - impact_analyst: every file it names must exist; unknown files are removed from its answer and reported.
+4. CLEAN STATE: before each run, reset demo-work to the run's head SHA with python -m changeguard_tools.reset and
+   confirm no earlier fix is present (git status clean and HEAD == head_sha); record this in the run. Explain why the
+   last run's proof was "did_not_fail": was the earlier fix still applied, or was the test wrong? Show the evidence.
+5. UI: the Approve step must only show approved when this run has an approval record for a valid proposal of this run;
+   otherwise "waiting" or "not reached". Find why it showed "Approved by a reviewer" here and fix it, with a test.
+6. Add pytest-asyncio to services/changeguard-tools/requirements.txt, install it in the venv, run the full Python suite
+   and report counts (confirm whether those tests also failed before your change).
+7. Agent instructions: tell each specialist it receives the real source and must use ONLY files, imports and names that
+   appear in its input (or ask with need_files). Redeploy the agents.
+8. Live check: one commit-triggered PRICE-142 run. Expect: proof VALID (fails at the hazard line in billing),
+   fix passes git apply --check, then approve → PASSED. Save the timeline and results to docs/evidence/agentic/.
