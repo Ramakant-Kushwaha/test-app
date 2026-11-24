@@ -1,3 +1,9 @@
+Context (from the previous task, now committed): the agentic runtime works and the loop bug is fixed
+(step limits, repeat detection, arg auto-fill, conversation memory). See docs/evidence/agentic/loop-diagnosis.md
+and the last commit. Remaining problem: the specialist agents never see the repository, so they invent files,
+imports and the fix format; the last run ended "Proof: not proven (did_not_fail)", "Fix: error", and the UI wrongly
+showed "Approved by a reviewer". Read .bob/rules/changeguard.md, plans/CONTRACTS.md, plans/agentic-commit-plan.md,
+services/backend/src/agentic/ and agents/ first. Plan first, then implement.
 Yes — do both, and add validation so invented code is caught before it runs.
 
 1. GROUNDED INPUT for every consult_agent (filled by the runtime from run state, like tool args; the supervisor
